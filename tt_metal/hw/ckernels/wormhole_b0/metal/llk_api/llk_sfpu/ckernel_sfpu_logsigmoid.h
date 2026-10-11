@@ -30,13 +30,13 @@ inline void calculate_logsigmoid(
 
         sfpi::vFloat abs_x = sfpi::abs(x);
         sfpi::vFloat exp_neg_abs_x = _sfpu_exp_accurate_<is_fp32_dest_acc_en>(-abs_x);
+        sfpi::vFloat log1p_exp = exp_neg_abs_x;
 
         // For x >= 4, e = exp(-x) <= 0.0183. Five terms of
         // log1p(e) = e - e^2/2 + e^3/3 - e^4/4 + e^5/5
         // have a remainder below 6e-12 at the boundary, comfortably inside fp32 ULP.
-        // This avoids the much larger generic log1p reduction on the positive tail while
-        // retaining the accurate identity used by the central/negative ranges.
-        sfpi::vFloat log1p_exp = calculate_log1p_fp32<is_fp32_dest_acc_en>(exp_neg_abs_x);
+        // This avoids the generic log1p reduction on the positive tail while retaining
+        // the accurate identity used by the central/negative ranges.
         v_if(x >= 4.0f) {
             sfpi::vFloat e = exp_neg_abs_x;
             sfpi::vFloat p = 0.2f;
@@ -45,6 +45,9 @@ inline void calculate_logsigmoid(
             p = p * e - 0.5f;
             p = p * e + 1.0f;
             log1p_exp = p * e;
+        }
+        v_elseif(x < 4.0f) {
+            log1p_exp = calculate_log1p_fp32<is_fp32_dest_acc_en>(exp_neg_abs_x);
         }
         v_endif;
 
