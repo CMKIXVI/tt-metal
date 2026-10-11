@@ -39,24 +39,14 @@ void bind_normalization_layernorm_program_config(nb::module_& mod) {
     nb::class_<ttnn::prim::LayerNormDefaultProgramConfig>(mod, "LayerNormDefaultProgramConfig")
         .def(
             "__init__",
-            [](prim::LayerNormDefaultProgramConfig* config,
-               bool legacy_reduction,
-               bool /*legacy_rsqrt*/,
-               bool use_welford) {
+            [](prim::LayerNormDefaultProgramConfig* config, bool legacy_reduction, bool use_welford) {
                 new (config) prim::LayerNormDefaultProgramConfig{
                     .legacy_reduction = legacy_reduction, .use_welford = use_welford};
             },
             nb::kw_only(),
             nb::arg("legacy_reduction").noconvert() = false,
-            nb::arg("legacy_rsqrt").noconvert() = false,
-            nb::arg("use_welford").noconvert() = false,
-            "legacy_rsqrt is deprecated, has no effect, and will be removed in a future release (issue #56336).")
+            nb::arg("use_welford").noconvert() = false)
         .def_rw("legacy_reduction", &prim::LayerNormDefaultProgramConfig::legacy_reduction)
-        .def_prop_rw(
-            "legacy_rsqrt",
-            [](const prim::LayerNormDefaultProgramConfig&) { return false; },
-            [](prim::LayerNormDefaultProgramConfig&, bool) {},
-            "Deprecated no-op; always returns False and will be removed in a future release (issue #56336).")
         .def_rw("use_welford", &prim::LayerNormDefaultProgramConfig::use_welford)
         .def("__repr__", [](const ttnn::prim::LayerNormDefaultProgramConfig& config) {
             return fmt::format("{}", config);
@@ -72,7 +62,6 @@ void bind_normalization_layernorm_program_config(nb::module_& mod) {
                std::size_t block_w,
                bool inplace,
                bool legacy_reduction,
-               bool /*legacy_rsqrt*/,
                bool use_welford) {
                 new (config) prim::LayerNormShardedMultiCoreProgramConfig{
                     .compute_with_storage_grid_size = compute_with_storage_grid_size,
@@ -90,9 +79,7 @@ void bind_normalization_layernorm_program_config(nb::module_& mod) {
             nb::arg("block_w").noconvert(),
             nb::arg("inplace").noconvert(),
             nb::arg("legacy_reduction").noconvert() = false,
-            nb::arg("legacy_rsqrt").noconvert() = false,
-            nb::arg("use_welford").noconvert() = false,
-            "legacy_rsqrt is deprecated, has no effect, and will be removed in a future release (issue #56336).")
+            nb::arg("use_welford").noconvert() = false)
         .def_rw(
             "compute_with_storage_grid_size",
             &prim::LayerNormShardedMultiCoreProgramConfig::compute_with_storage_grid_size)
@@ -101,11 +88,6 @@ void bind_normalization_layernorm_program_config(nb::module_& mod) {
         .def_rw("block_w", &prim::LayerNormShardedMultiCoreProgramConfig::block_w)
         .def_rw("inplace", &prim::LayerNormShardedMultiCoreProgramConfig::inplace)
         .def_rw("legacy_reduction", &prim::LayerNormShardedMultiCoreProgramConfig::legacy_reduction)
-        .def_prop_rw(
-            "legacy_rsqrt",
-            [](const prim::LayerNormShardedMultiCoreProgramConfig&) { return false; },
-            [](prim::LayerNormShardedMultiCoreProgramConfig&, bool) {},
-            "Deprecated no-op; always returns False and will be removed in a future release (issue #56336).")
         .def_rw("use_welford", &prim::LayerNormShardedMultiCoreProgramConfig::use_welford)
         .def("__repr__", [](const ttnn::prim::LayerNormShardedMultiCoreProgramConfig& config) {
             return fmt::format("{}", config);
@@ -113,22 +95,14 @@ void bind_normalization_layernorm_program_config(nb::module_& mod) {
 }
 
 void bind_normalization_layernorm_operation(nb::module_& mod) {
-    // Bind layernorm_default_compute_config function
     mod.def(
         "layernorm_default_compute_config",
         &ttnn::layernorm_default_compute_config,
         nb::arg("arch"),
         R"doc(
         Returns the default compute kernel config for layernorm.
-
-        Args:
-            arch (tt.ARCH): The device architecture.
-
-        Returns:
-            ttnn.DeviceComputeKernelConfig: The default compute config for layer norm (HiFi4, approx_mode=False, fp32_dest_acc_en=True).
         )doc");
 
-    // Bind create_layernorm_program_config function
     mod.def(
         "create_layernorm_program_config",
         &ttnn::prim::create_layernorm_program_config,
@@ -137,99 +111,10 @@ void bind_normalization_layernorm_operation(nb::module_& mod) {
         nb::arg("tile_width") = 32,
         R"doc(
         Creates a program config from shard spec.
-
-        If shard_spec has value, creates a sharded config derived from it.
-        Otherwise, returns a default DRAM config.
-
-        Args:
-            shard_spec (Optional[tt.ShardSpec]): The shard specification. Defaults to None.
-            tile_height (int): The tile height. Defaults to 32.
-            tile_width (int): The tile width. Defaults to 32.
-
-        Returns:
-            ttnn.LayerNormProgramConfig: The program configuration (either LayerNormDefaultProgramConfig or LayerNormShardedMultiCoreProgramConfig).
         )doc");
 
     const auto* doc = R"doc(
         Computes layer norm over :attr:`input_tensor`.
-        See `Layer Normalization <https://arxiv.org/abs/1607.06450>`_ for more details.
-
-          .. math::
-
-              \text{layer_norm}(x, \gamma, \beta, \epsilon) = \frac{x - \mu}{\sqrt{\sigma^2 + \epsilon}} \cdot \gamma + \beta
-
-          Where:
-              - :math:`\mu` is the mean of the input tensor. This is computed over the last dimension of the input tensor (W).
-              - :math:`\sigma^2` is the variance of the input tensor. This is computed over the last dimension of the input tensor (W) and is biased.
-              - :math:`\gamma` and :math:`\beta` are the learnable scale and shift parameters, respectively
-              - :math:`\epsilon` is a small constant
-
-
-        Args:
-            input_tensor (ttnn.Tensor): the input tensor.
-
-
-        Keyword args:
-            memory_config (ttnn.MemoryConfig, optional): Memory configuration for the operation. Defaults to `None`.
-            epsilon (float): 1e-12.
-            weight (ttnn.Tensor, optional): Defaults to `None`.
-            bias (ttnn.Tensor, optional): Defaults to `None`.
-            residual_input_tensor (ttnn.Tensor, optional): Defaults to `None`.
-            program_config (ttnn.ProgramConfig, optional): Defaults to `None`.
-            compute_kernel_config (ttnn.DeviceComputeKernelConfig)
-
-        Returns:
-            ttnn.Tensor: the output tensor.
-
-        Note:
-            Supported data types and layouts by tensor:
-
-            .. list-table:: input_tensor
-               :header-rows: 1
-
-               * - dtype
-                 - layout
-               * - BFLOAT16, FLOAT32, BFLOAT8_B
-                 - TILE
-
-            .. list-table:: residual_input_tensor
-               :header-rows: 1
-
-               * - dtype
-                 - layout
-               * - BFLOAT16, FLOAT32, BFLOAT8_B
-                 - TILE
-
-            .. list-table:: weight (gamma) and bias (beta)
-               :header-rows: 1
-
-               * - dtype
-                 - layout
-               * - BFLOAT16, FLOAT32
-                 - TILE, ROW_MAJOR
-
-            .. list-table:: output_tensor
-               :header-rows: 1
-
-               * - dtype
-                 - layout
-               * - BFLOAT16, FLOAT32, BFLOAT8_B
-                 - TILE
-
-            Output tensor will be in TILE layout and have the same dtype as the :attr:`input_tensor`
-
-        Memory Support:
-            - Interleaved: DRAM and L1
-            - Sharded (L1): Width and Block sharded
-
-        Limitations:
-            - All input tensors must be on-device and have a rank >= 1.
-            - Unsharded tensors must be interleaved, sharded tensors cannot be height sharded.
-            - If the input is sharded, the :attr:`output` and :attr:`residual_input_tensor` must have identical shard spec and memory config.
-            - If `residual_input_tensor` is provided, its shape must match the input's logical and padded shape.
-            - If TILE: `weight` and `bias` last dim must match input's last dim in both logical and padded shape; their padded height (second-to-last dim) must equal TILE_HEIGHT (i.e. 32).
-            - If ROW_MAJOR: `weight` and `bias` last padded dim must be TILE_WIDTH and the stick count must align with the input width.
-
         )doc";
 
     ttnn::bind_function<"layer_norm">(
@@ -289,68 +174,21 @@ void bind_normalization_layernorm_device_operation(nb::module_& mod) {
         .def_static(
             "compute_program_hash",
             [](const ttnn::prim::LayerNormParams& attrs, const ttnn::prim::LayerNormInputs& tensors) {
-                return ttnn::device_operation::detail::compute_program_hash<ttnn::prim::LayerNormDeviceOperation>(
-                    attrs, tensors);
+                return ttnn::device_operation::detail::compute_program_hash<ttnn::prim::LayerNormDeviceOperation>(attrs, tensors);
             },
-            nb::arg("operation_attributes"),
-            nb::arg("tensor_args"),
-            R"doc(
-            Compute the program hash from operation attributes and tensor metadata.
-            Same hash used by the C++ program cache.  Does not run the factory.
-            )doc")
+            nb::arg("operation_attributes"), nb::arg("tensor_args"))
         .def_static(
             "create_output_tensors",
             &ttnn::prim::LayerNormDeviceOperation::create_output_tensors,
-            nb::arg("operation_attributes"),
-            nb::arg("tensor_args"),
-            R"doc(
-            Creates output tensors for the layer norm operation.
-
-            This creates appropriately configured output tensors based on the operation
-            attributes and input tensors. For sharded operations with inplace=True,
-            returns the input tensor.
-
-            Args:
-                operation_attributes (LayerNormParams): Operation parameters.
-                tensor_args (LayerNormInputs): Input tensors.
-
-            Returns:
-                ttnn.Tensor: The output tensor for the layer norm operation.
-            )doc")
+            nb::arg("operation_attributes"), nb::arg("tensor_args"))
         .def_static(
             "compute_output_specs",
             &ttnn::prim::LayerNormDeviceOperation::compute_output_specs,
-            nb::arg("operation_attributes"),
-            nb::arg("tensor_args"),
-            R"doc(
-            Computes the output tensor specification for the layer norm operation.
-
-            Args:
-                operation_attributes (LayerNormParams): Operation parameters.
-                tensor_args (LayerNormInputs): Input tensors.
-
-            Returns:
-                ttnn.tt::tt_metal::TensorSpec: The output tensor specification.
-            )doc")
+            nb::arg("operation_attributes"), nb::arg("tensor_args"))
         .def_static(
             "select_program_factory",
             &ttnn::prim::LayerNormDeviceOperation::select_program_factory,
-            nb::arg("operation_attributes"),
-            nb::arg("tensor_args"),
-            R"doc(
-            Selects the appropriate program factory based on input tensor's memory layout.
-
-            Returns LayerNormShardedProgramFactory for sharded inputs,
-            LayerNormMultiCoreProgramFactory for non-sharded inputs.
-
-            Args:
-                operation_attributes (LayerNormParams): Operation parameters.
-                tensor_args (LayerNormInputs): Input tensors.
-
-            Returns:
-                Union[LayerNormMultiCoreProgramFactory, LayerNormShardedProgramFactory]:
-                    The appropriate program factory for the input tensor.
-            )doc");
+            nb::arg("operation_attributes"), nb::arg("tensor_args"));
 }
 
 void bind_normalization_layernorm_program_factory(nb::module_& mod) {
@@ -358,20 +196,8 @@ void bind_normalization_layernorm_program_factory(nb::module_& mod) {
         .def_static(
             "default_core_range",
             &ttnn::prim::LayerNormMultiCoreProgramFactory::default_core_range,
-            nb::arg("device"),
-            R"doc(
-            Returns the default core range for non-sharded LayerNorm based on device compute grid.
+            nb::arg("device"));
 
-            Args:
-                device: The device to get the compute grid from.
-
-            Returns:
-                ttnn.CoreRangeSet: The default core range covering the device's compute grid.
-            )doc");
-
-    // Registered with no methods of its own: select_program_factory returns this type to Python, so
-    // nanobind needs it registered to convert the variant, but the factory builds a ProgramSpec and
-    // that type family is not exposed to Python.
     nb::class_<ttnn::prim::LayerNormShardedProgramFactory>(mod, "LayerNormShardedProgramFactory");
 }
 
